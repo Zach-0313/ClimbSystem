@@ -5,12 +5,11 @@ using UnityEngine;
 public class Player_MovementManager : MonoBehaviour
 {
     //Events
-    public event EventHandler<OnMovementEventArgs> OnGroundMovement;
-    public event EventHandler<OnMovementEventArgs> OnFreeClimb;
-    public event EventHandler<OnMovementEventArgs> OnEdgeClimb;
-
-    public event EventHandler<OnMovementEventArgs> OnValidateClimb;
-    public class OnMovementEventArgs : EventArgs
+    public event EventHandler<OnMovementEventArgs> OnGroundMovement;  // called when the player needs to walk around : Recieved in the Player_GroundMovement script
+    public event EventHandler<OnMovementEventArgs> OnFreeClimb;       // called when the player is free climbing : Recieved in the Player_ClimbSystem script
+    public event EventHandler<OnMovementEventArgs> OnEdgeClimb;       // called when the player is climbing on a ledge : Recieved in the Player_ClimbSystem script
+    public event EventHandler<OnMovementEventArgs> OnValidateClimb;   // called when the climb system checks for a valid climbable surface : Recieved in the ClimbDetector script
+    public class OnMovementEventArgs : EventArgs  // EventArgs allow data to be sent/recieved when events are called, this EventArg passes player inputs and situational data to the various movement events
     {
         public Rigidbody playerBody;
         public ClimbableObject currentClimbObject;
@@ -24,7 +23,7 @@ public class Player_MovementManager : MonoBehaviour
     }
 
     [SerializeField]
-    Transform playerInputSpace = default;
+    Transform playerInputSpace = default;  // the player will move relitive to this transform's orientation(set this to the camera)
     [SerializeField, Range(0f, 10f)]
     float jumpHeight = 2f;
     [SerializeField, Range(0, 90)]
@@ -81,32 +80,32 @@ public class Player_MovementManager : MonoBehaviour
     {
         UpdateState(); //updates variables and checks for ground
         Vector3 gravity = Vector3.down * gravityScale;
-        if (wantsClimbing)
+        if (wantsClimbing)  //if holding the climb button [R1]
         {
             wantsClimbing = staminaSystem.Stamina > 0;
         }
-        if (wantsClimbing && !isClimbing)
+        if (wantsClimbing && !isClimbing)  // if the player is not already on a climbable surface, then check for a climbable surface
         {
             OnValidateClimb?.Invoke(this, OnMovementEventData(ClimbableObject.ClimbTypes.FreeClimb));
         }
-        if (isClimbing)
+        if (isClimbing)  //called every frame while the player is climbing
         {
-            staminaSystem.DrainStamina(1);
+            staminaSystem.DrainStamina(1); // drain stamina, modifier of 1x
             if (wantsJumpOffWall)
             {
                 Jump(gravity);
             }
             if (wantsClimbing)  //if holding the climb button [R1]
             {
-                if (isLedgeClimbing && wantsJump)  //On a ledge + pressed the Jump button
+                if (isLedgeClimbing && wantsJump)  //On a ledge + pressed the Jump button. tries to transition (Ledge Climb -> Freeclimb)
                 {
                     OnValidateClimb?.Invoke(this, OnMovementEventData(ClimbableObject.ClimbTypes.FreeClimb));
                 }
-                else if (isLedgeClimbing)  //if on a ledge, there's no need to check for anything
+                else if (isLedgeClimbing)  //if on a ledge(idle/no other action), there's no need to check for anything
                 {
                     OnEdgeClimb?.Invoke(this, OnMovementEventData());  //no need to validate
                 }
-                if (isFreeClimbing && !wantsJump && FoundLedge && CanTransition)  //if a ledge is detected, and the player is ready to transition
+                if (isFreeClimbing && !wantsJump && FoundLedge && CanTransition)  //if currently Freeclimbing + a ledge is detected + no jump(holding jump will make the player ignore ledges), then try to transition (Freeclimb -> Ledge Climb)
                 {
                     OnValidateClimb?.Invoke(this, OnMovementEventData(ClimbableObject.ClimbTypes.EdgeClimb));
                     StartCoroutine(SwitchedClimbState());  //CanTransition is set to false for 1 second, then set back to true
