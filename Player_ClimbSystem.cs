@@ -1,3 +1,10 @@
+/*
+The gist of how the climbing system works is that when activated via Events, 2 points on the climb surface are gathered.
+An initial point is the point on the climb surface's mesh thats directly infront of the player, this is effectively the player's position on the mesh.
+A second position is found by taking a raycast in the player's forward direction and rotating it based on the joystick input. 
+A point is measured 5 units from the player in the direction of the line, this point is the origin of a linecast towards the initial point, what this line hits is the next player position.
+*/
+
 using System.Collections;
 using UnityEngine;
 
@@ -93,7 +100,6 @@ public class Player_ClimbSystem : MonoBehaviour
     [SerializeField] Vector3 CornerCheckPos;
     void AccountForMovement(Player_MovementManager.OnMovementEventArgs movementData)
     {
-        //dir1 = movementData.currentClimbObject.isMoving ? (movementData.ledgePoint - transform.position) : transform.forward;
         dir1 = transform.forward;
         if (Physics.Raycast(transform.position, dir1.normalized, out RaycastHit hit, 2f) && hit.collider)
         {
@@ -180,7 +186,7 @@ public class Player_ClimbSystem : MonoBehaviour
             }
         }
         else if (Physics.Raycast(CornerCheckPos, transform.right.normalized * (input.x > 0 ? -1 : 1), out RaycastHit moveTo2, 2f))
-        {    //ADD INTERPOLATION AROUND CORNERS
+        {
             Debug.Log("corner found");
             if (Vector3.Distance(hit.point, moveTo2.point) > 0 && input.magnitude > 0.1f)
             {
