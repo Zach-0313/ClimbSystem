@@ -60,28 +60,21 @@ public class Player_MovementManager : MonoBehaviour
     [SerializeField] StaminaSystem staminaSystem;
 
     [SerializeField] Player_GroundedMovement playerGroundedMovement;
-    void OnValidate()
-    {
-        minGroundDotProduct = Mathf.Cos(maxGroundAngle * Mathf.Deg2Rad);
-        minClimbDotProduct = Mathf.Cos(maxClimbAngle * Mathf.Deg2Rad);
-    }
+
     void OnEnable()
     {
         //subscribe to events
         climbDetector.OnClimbDetected += OnRecieveClimbCheckData;
         InputHandler.OnPlayerInput += Process_PlayerInputData;  //subscribing to this event will provide input data : calls the Process_PlayerInputData method
-        
-        OnValidate(); //ensure that minimums are set properly
     }
     void Start()
-    {
-        UpdateState();
-        
+    {        
         OnGroundMovement(this, OnMovementEventData()); //calling this event will snap the player to the ground when the scene runs
     }
     void FixedUpdate()
     {
-        UpdateState(); //updates variables and checks for ground
+        velocity = body.velocity;
+        isGrounded = Physics.SphereCast(body.position, .25f, -Vector3.up, out RaycastHit hit, groundCheckDistance);
         Vector3 gravity = Vector3.down * gravityScale;
         if (wantsClimbing)  //if holding the climb button [R1]
         {
@@ -89,7 +82,7 @@ public class Player_MovementManager : MonoBehaviour
         }
         if (wantsClimbing && !isClimbing)  // if the player is not already on a climbable surface, then check for a climbable surface
         {
-            OnValidateClimb?.Invoke(this, OnMovementEventData(ClimbableObject.ClimbTypes.FreeClimb));
+            if (CanTransition) OnValidateClimb?.Invoke(this, OnMovementEventData(ClimbableObject.ClimbTypes.FreeClimb));
         }
         if (isClimbing)  //called every frame while the player is climbing
         {
@@ -115,7 +108,6 @@ public class Player_MovementManager : MonoBehaviour
                 }
                 else if (isFreeClimbing)
                 {
-                    //OnValidateClimb?.Invoke(this, OnMovementEventData(ClimbableObject.ClimbTypes.FreeClimb));
                     OnFreeClimb.Invoke(this, OnMovementEventData(ClimbableObject.ClimbTypes.FreeClimb));
                 }
 
@@ -156,6 +148,7 @@ public class Player_MovementManager : MonoBehaviour
             isClimbing = isFreeClimbing = isLedgeClimbing = false;  //disable climbing
             jumpDirection = contactNormal;                          //jump away from wall
             transform.forward = -transform.forward;                 //face away from wall
+            StartCoroutine(SwitchedClimbState());
         }
         else
         {
@@ -183,7 +176,7 @@ public class Player_MovementManager : MonoBehaviour
         CurrentClimbingSource = climbEventArgs.source;
         connectedBody = climbEventArgs.connectionToRidgidbody;
         contactNormal = climbEventArgs.climbNormal;
-
+        if (!CanTransition) return;
         //the following if/else chain reacts to detector results based off the current climb state
         if (climbEventArgs.LedgeClimbDetected && !isLedgeClimbing)
         {
@@ -209,6 +202,7 @@ public class Player_MovementManager : MonoBehaviour
             Debug.Log("Climb not triggering");
             isClimbing = isFreeClimbing = isLedgeClimbing = false;
         }
+        StartCoroutine(SwitchedClimbState());
     }
     OnMovementEventArgs OnMovementEventData() //this method simply compiles relevant player data, because this method returns the OnMovementEventArgs it lets data be sent between systems during event calls
     {
@@ -263,104 +257,6 @@ public class Player_MovementManager : MonoBehaviour
         InputHandler.OnPlayerInput -= Process_PlayerInputData;
         climbDetector.OnClimbDetected -= OnRecieveClimbCheckData;
 
-    }
-
-    bool SnapToGround()
-    {
-        Debug.Log("Snapping to ground...");
-        if (stepsSinceLastGrounded > 1 || stepsSinceLastJump <= 2)
-        {
-            return false;
-        }
-        float speed = velocity.magnitude;
-        if (speed > maxSnapSpeed)
-        {
-            return false;
-        }
-        if (!Physics.Raycast(body.position, -upAxis, out RaycastHit hit, groundCheckDistance))//if something is NOT detected below the player
-        {
-            return false;
-        }
-
-        float upDot = Vector3.Dot(upAxis, hit.normal);
-        if (upDot < minGroundDotProduct)//if "ground" is within the steepness threshold(max ground angle)
-        {
-            return false;
-        }
-        groundContactCount = 1;
-        contactNormal = hit.normal;
-        float dot = Vector3.Dot(velocity, hit.normal);
-        if (dot > 0f)
-        {
-            velocity = (velocity - hit.normal * dot).normalized * speed;//presses player into surface
-        }
-        connectedBody = hit.rigidbody;
-        return true;
-    }
-    bool CheckClimbing()
-    {
-        if (isClimbing)
-        {
-
-            climbNormal.Normalize();
-            float upDot = Vector3.Dot(upAxis, climbNormal);
-            if (upDot >= minGroundDotProduct)
-            {
-                climbNormal = lastClimbNormal;
-            }
-
-            groundContactCount = 1;
-            contactNormal = climbNormal;
-            return true;
-        }
-        return false;
-    }
-    void UpdateState()
-    {
-        stepsSinceLastGrounded += 1;
-        velocity = body.velocity;
-        if (CheckClimbing() || OnGround || SnapToGround())
-        {
-            stepsSinceLastGrounded = 0;
-            if (groundContactCount > 1)
-            {
-                contactNormal.Normalize();
-            }
-        }
-        else
-        {
-            contactNormal = upAxis;
-        }
-
-        if (connectedBody)
-        {
-            if (connectedBody.isKinematic || connectedBody.mass >= body.mass)
-            {
-                UpdateConnectionState();
-            }
-        }
-        isGrounded = Physics.SphereCast(body.position, .25f, -upAxis, out RaycastHit hit, groundCheckDistance);
-        Debug.DrawLine(transform.position, hit.point, Color.cyan, .1f);
-
-
-    }
-    void UpdateConnectionState()
-    {
-        if (connectedBody == previousConnectedBody)
-        {
-            Vector3 connectionMovement = connectedBody.transform.TransformPoint(connectionLocalPosition) - connectionWorldPosition;
-            connectionVelocity = connectionMovement / Time.deltaTime;
-        }
-        connectionWorldPosition = body.position;
-        connectionLocalPosition = connectedBody.transform.InverseTransformPoint(connectionWorldPosition);
-    }
-    void ClearState()
-    {
-        groundContactCount = climbContactCount = 0;
-        contactNormal = climbNormal = Vector3.zero;
-        connectionVelocity = Vector3.zero;
-        previousConnectedBody = connectedBody;
-        connectedBody = null;
     }
     Vector3 ProjectDirectionOnPlane(Vector3 direction, Vector3 normal)
     {
