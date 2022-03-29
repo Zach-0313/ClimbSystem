@@ -50,7 +50,7 @@ public class Player_MovementManager : MonoBehaviour
     [SerializeField] float minGroundDotProduct, minClimbDotProduct;
     public float gravityScale;
     [SerializeField] int stepsSinceLastGrounded, stepsSinceLastJump;
-    [SerializeField] bool wantsJump, wantsClimbing, wantsJumpOffWall;
+    [SerializeField] bool wantsJump, wantsClimbing, wantsJumpOffWall;  //these bools correspond to input information : processed in the Process_PlayerInputData method
     [SerializeField] InputHandler InputHandler;
     [SerializeField] ClimbDetector climbDetector;
     RaycastHit hit;
@@ -67,14 +67,17 @@ public class Player_MovementManager : MonoBehaviour
     }
     void OnEnable()
     {
+        //subscribe to events
         climbDetector.OnClimbDetected += OnRecieveClimbCheckData;
-        InputHandler.OnPlayerInput += Process_PlayerInputData;
+        InputHandler.OnPlayerInput += Process_PlayerInputData;  //subscribing to this event will provide input data : calls the Process_PlayerInputData method
+        
         OnValidate(); //ensure that minimums are set properly
     }
     void Start()
     {
         UpdateState();
-        OnGroundMovement(this, OnMovementEventData());
+        
+        OnGroundMovement(this, OnMovementEventData()); //calling this event will snap the player to the ground when the scene runs
     }
     void FixedUpdate()
     {
@@ -128,16 +131,16 @@ public class Player_MovementManager : MonoBehaviour
             {
                 Jump(gravity);
             }
-            OnGroundMovement?.Invoke(this, OnMovementEventData());
-            climbDetector.currentClimbSource = null;
-            isFreeClimbing = isLedgeClimbing = false;
+            OnGroundMovement?.Invoke(this, OnMovementEventData());  //if grounded, then invoke the OnGroundMovement event + send data from OnMovementData()
+            climbDetector.currentClimbSource = null;                //player is on the ground, so clear climb sources
+            isFreeClimbing = isLedgeClimbing = false;               //player is on the ground, disable climbing
         }
         else
         {
-            velocity += Vector3.down * gravityScale * Time.deltaTime;//if not climbing or grounded, then the player is falling
+            velocity += Vector3.down * gravityScale * Time.deltaTime; //if not climbing or grounded, then the player is falling
         }
         
-        body.velocity = velocity;
+        body.velocity = velocity;  //apply velocity changes made by movement methods
     }
     void Jump(Vector3 gravity)
     {
@@ -145,21 +148,21 @@ public class Player_MovementManager : MonoBehaviour
         Vector3 jumpDirection;
         if (isGrounded)
         {
-            jumpDirection = contactNormal;
-            OnValidateClimb?.Invoke(this, OnMovementEventData(ClimbableObject.ClimbTypes.FreeClimb)); //check for jumping onto a ledge
+            jumpDirection = contactNormal; //jump away from the "ground" surface
+            OnValidateClimb?.Invoke(this, OnMovementEventData(ClimbableObject.ClimbTypes.FreeClimb)); //check for Freeclimb surface
         }
-        else if (isClimbing)
+        else if (isClimbing)  //Jumping off a wall
         {
-            isClimbing = isFreeClimbing = isLedgeClimbing = false;
-            jumpDirection = contactNormal;
-            transform.forward = -transform.forward;
+            isClimbing = isFreeClimbing = isLedgeClimbing = false;  //disable climbing
+            jumpDirection = contactNormal;                          //jump away from wall
+            transform.forward = -transform.forward;                 //face away from wall
         }
         else
         {
             return;
         }
-        float jumpSpeed = Mathf.Sqrt(2f * gravity.magnitude * jumpHeight);
-        jumpDirection = (jumpDirection + upAxis).normalized;
+        float jumpSpeed = Mathf.Sqrt(2f * gravity.magnitude * jumpHeight);  //this is the formula for jump height
+        jumpDirection = (jumpDirection + upAxis).normalized;                //adjust the jump direction to apear more natural
         float alignedSpeed = Vector3.Dot(velocity, jumpDirection);
         if (alignedSpeed > 0f)
         {
@@ -168,12 +171,20 @@ public class Player_MovementManager : MonoBehaviour
         velocity += jumpDirection * jumpSpeed;
     }
     Vector3 lastPoint;
-    private void OnRecieveClimbCheckData(object sender, ClimbDetector.ClimbEventArgs climbEventArgs)
+    /*
+     * when checking for a climbable surface, the OnValidateClimb event is called.
+     * The climb detectoin system is expensive to calculate, so it is used sparringly.
+     * To avoid spikes in frametimes, calling the climb detection is done via event.
+     * The climb detector returns its data by calling an event(this is for preformance reasons).
+     */
+    private void OnRecieveClimbCheckData(object sender, ClimbDetector.ClimbEventArgs climbEventArgs)  //this method is called once the ClimbDetector has finished it's calculations (called via event)
     {
         lastPoint = climbEventArgs.LedgePoint;
         CurrentClimbingSource = climbEventArgs.source;
         connectedBody = climbEventArgs.connectionToRidgidbody;
         contactNormal = climbEventArgs.climbNormal;
+
+        //the following if/else chain reacts to detector results based off the current climb state
         if (climbEventArgs.LedgeClimbDetected && !isLedgeClimbing)
         {
             isClimbing = isLedgeClimbing = true;
@@ -199,7 +210,7 @@ public class Player_MovementManager : MonoBehaviour
             isClimbing = isFreeClimbing = isLedgeClimbing = false;
         }
     }
-    OnMovementEventArgs OnMovementEventData()
+    OnMovementEventArgs OnMovementEventData() //this method simply compiles relevant player data, because this method returns the OnMovementEventArgs it lets data be sent between systems during event calls
     {
         Vector3 gravity = Vector3.down * gravityScale;
         upAxis = Vector3.up;
@@ -230,40 +241,15 @@ public class Player_MovementManager : MonoBehaviour
         data.velocity = velocity;
         return data;
     }
-    OnMovementEventArgs OnMovementEventData(ClimbableObject.ClimbTypes filterFor)
+    OnMovementEventArgs OnMovementEventData(ClimbableObject.ClimbTypes filterFor) //Same as the above method, but this allows a climbtype(to filter for) to be sent through the OnValidateClimb event.
     {
-        Vector3 gravity = Vector3.down * gravityScale;
-        upAxis = Vector3.up;
-        playerInput = Vector2.ClampMagnitude(playerInput, 1f);
-
-        if (playerInputSpace)
-        {
-            rightAxis = ProjectDirectionOnPlane(playerInputSpace.right, upAxis);
-            forwardAxis = ProjectDirectionOnPlane(playerInputSpace.forward, upAxis);
-        }
-        else
-        {
-            rightAxis = ProjectDirectionOnPlane(Vector3.right, upAxis);
-            forwardAxis = ProjectDirectionOnPlane(Vector3.forward, upAxis);
-        }
-
-        OnMovementEventArgs data = new OnMovementEventArgs();
-        data.connectionVelocity = connectionVelocity;
-        data.contactNormal = contactNormal;
-        data.playerBody = body;
-        data.movementInput = playerInput;
-        data.unnormalized_movementInput = unnormalized_playerInput;
-        data.gravityScale = gravityScale;
-        data.InputSpace = playerInputSpace;
-        data.rightAxis = rightAxis;
-        data.forwardAxis = forwardAxis;
-        data.currentClimbObject = CurrentClimbingSource;
-        data.velocity = velocity;
+        OnMovementEventArgs data = OnMovementEventData();
         data.searchFor = filterFor;
         return data;
     }
-    private void Process_PlayerInputData(object sender, InputHandler.OnPlayerInputEventArgs e)
+    private void Process_PlayerInputData(object sender, InputHandler.OnPlayerInputEventArgs e)  //when player input occurs, the InputHandler class calls an event that triggers this method
     {
+        //this essentially allows the script to snapshot input data(sets bools), this way it doesn't need to be recollected every time input data is needed
         playerInput = e.playerMovement;
         unnormalized_playerInput = e.unnormalized_playerMovement;
         wantsJumpOffWall = e.wantJump2;
@@ -273,44 +259,10 @@ public class Player_MovementManager : MonoBehaviour
 
     void OnDisable()
     {
+        //events need to be unsubscribed OnDisable, this prevents ram leaks / garbage collector issues
         InputHandler.OnPlayerInput -= Process_PlayerInputData;
         climbDetector.OnClimbDetected -= OnRecieveClimbCheckData;
 
-    }
-    void OnCollisionEnter(Collision collision)
-    {
-        //EvaluateCollision(collision);
-    }
-
-    void OnCollisionStay(Collision collision)
-    {
-        //EvaluateCollision(collision);
-    }
-
-    void EvaluateCollision(Collision collision)
-    {
-        float minDot = minGroundDotProduct;
-        for (int i = 0; i < collision.contactCount; i++)
-        {
-            Vector3 normal = collision.GetContact(i).normal;
-            float upDot = Vector3.Dot(upAxis, normal);
-            if (isClimbing)
-            {
-                groundContactCount += 1;
-                contactNormal = normal;
-                connectedBody = collision.rigidbody;
-            }
-            else
-            {
-                if (wantsClimbing && upDot >= minClimbDotProduct)
-                {
-                    climbContactCount += 1;
-                    climbNormal = normal;
-                    lastClimbNormal = normal;
-                    connectedBody = collision.rigidbody;
-                }
-            }
-        }
     }
 
     bool SnapToGround()
@@ -387,7 +339,6 @@ public class Player_MovementManager : MonoBehaviour
                 UpdateConnectionState();
             }
         }
-        //isGrounded = OnGround;
         isGrounded = Physics.SphereCast(body.position, .25f, -upAxis, out RaycastHit hit, groundCheckDistance);
         Debug.DrawLine(transform.position, hit.point, Color.cyan, .1f);
 
@@ -415,7 +366,7 @@ public class Player_MovementManager : MonoBehaviour
     {
         return (direction - normal * Vector3.Dot(direction, normal)).normalized;
     }
-    IEnumerator SwitchedClimbState()
+    IEnumerator SwitchedClimbState()  //this courrotine acts as a cooldown between switching climb modes, this prevents the player from getting stuck in feedback loops
     {
         if(CanTransition) CanTransition = false;
         yield return new WaitForSeconds(1f);
